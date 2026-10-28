@@ -15,6 +15,13 @@
 
 `open-browser-use` 是平台中立的浏览器操作方案，也是Codex.app最新发布的Chrome Browser Use的开源替代方案。背后的故事可以看这篇[Browser Use详解](https://www.ifuryst.com/blog/2026/open-browser-use/)文章。 技术方案采用的是浏览器插件和open-browser-use cli结合，可通过 JS/Python/Go SDK 或 CLI 的方式接入。
 
+Electron app 可以接入仓库中的
+[`open-browser-use-electron`](packages/open-browser-use-electron/README.md)，
+支持会话多 tab、命名 profile、私有通道、经过鉴权的 socket 和 `obu iab`
+命令。运行 `pnpm install && pnpm example:iab` 启动
+[参考 app](examples/electron-iab/README.md)，`pnpm smoke:iab` 执行真实 Electron
+集成验证。该首版功能已落源码，尚未发布 npm 包。
+
 https://github.com/user-attachments/assets/bcfba878-f6a8-44b9-b84b-29c7e0285687
 
 ## Quick Start
@@ -46,6 +53,13 @@ open-browser-use setup
 
 如果 Chrome Web Store 暂时不可用，可以运行 `open-browser-use setup beta`
 准备带固定 key 的 release ZIP，再到 `chrome://extensions/` 手动安装。
+
+如果本地已经有扩展 ZIP，可以直接把路径传给 setup。该方式不会从 GitHub Release
+下载插件包，仍会准备带固定 key 的手动安装包：
+
+```bash
+open-browser-use setup --zip /absolute/path/to/open-browser-use-chrome-extension.zip
+```
 
 ### 配置 Zen Browser（实验性）
 
@@ -132,6 +146,10 @@ args = ["mcp"]
 
 这个 MCP server 会暴露标签页列表、打开/接管标签页、导航、CDP、action plan
 和清理等浏览器工具。
+
+嵌入 Electron 的浏览器使用宿主授权的 **`obu iab mcp`**，接法与上面的
+Chrome MCP 配置不同。私有通道/socket 鉴权、工具列表和受管理 stdio 示例见
+[Electron IAB MCP 接入](packages/open-browser-use-electron/README.md#iab-mcp-for-agents)。
 
 ## License
 

@@ -75,7 +75,10 @@ activating a different tab. Its `<all_urls>` host permission must be granted.
 Clip coordinates are CSS pixels relative to the document; omitted clip scale
 means 1, with supported scale in (0,4]. Full-page capture reads CSS layout metrics
 and constructs a page-relative clip. It does not scroll to force lazy content to
-load. Viewport capture without a clip uses Firefox's default device pixel ratio.
+load. Firefox also applies the tab's page zoom to clipped captures. At 120% zoom,
+a 200 by 100 clip at scale 2 produces 480 by 240 pixels. Use the returned image
+dimensions when mapping coordinates. Viewport capture without a clip uses
+Firefox's default device pixel ratio.
 Limits: 16384 output pixels per side, 32 megapixels total, and 32 MiB encoded-image
 bytes. Large full-page captures fail with a limit error; use smaller clips.
 

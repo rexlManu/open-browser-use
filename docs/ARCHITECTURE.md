@@ -1,7 +1,7 @@
 # 架构总览
 
 这个仓库当前目标是实现 Open Browser Use：一套开源 Browser Use 风格的
-Chrome 浏览器自动化基础设施。
+浏览器自动化基础设施，包含真实 Chrome route 和可嵌入 Electron 的 IAB。
 
 当前 `main` 分支包含 Chrome route 和 Zen/Firefox compatibility route。两者共享
 Go native messaging host、SDK 与主要 extension runtime；Chrome route 使用
@@ -42,6 +42,12 @@ tabs、history、session 和核心 navigation/evaluation 兼容能力。
 - `packages/open-browser-use-go/`：Go SDK，Go import path 为
   `github.com/ifuryst/open-browser-use/packages/open-browser-use-go`，package
   name 为 `obu`。
+- `packages/open-browser-use-electron/`：Electron IAB 集成包，提供主进程
+  runtime、多 tab、surface、private/socket transport、Node client 和原生
+  peer adapter。Electron 由宿主提供，Node client 使用 `/client` 入口。
+- `examples/electron-iab/`：独立 Electron 动作演示 app，界面聚焦 main + CLI +
+  私有通道五步编排，代码保留 Node/CLI × private/socket 参考接入、本地
+  fixture 和真实 Electron smoke；不依赖 Chrome extension。
 - `skills/open-browser-use/`：面向 AI Agent 的 Open Browser Use skill，说明
   如何安装、验证和使用浏览器插件、CLI、SDK 与 Browser Use 风格协议。
 - `packages/`：其他跨应用复用的库、契约和共享能力。
@@ -108,7 +114,9 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   版本低于当前 CLI 期望版本时，CLI 才打开 Chrome Web Store 正式扩展页，引导
   用户手动安装或启用扩展。macOS/Windows 仍可能需要用户在 Chrome 中确认启用
   扩展并重启；Linux 的 External Extensions 写入默认使用 Chrome 官方系统路径，
-  可能需要更高权限。
+  可能需要更高权限。传入 `--zip <本地路径>` 时不走 Web Store，而是复用 keyed
+  manual-install 流程：展开本地 ZIP、写入稳定 fallback key、原地重新打包并注册
+  对应 extension id 的 native host，然后按需打开扩展页和文件管理器。
 - `open-browser-use setup beta`：Chrome Web Store 临时不可用时的备用路径，
   注册 native host 后从 GitHub Releases 下载最新
   `open-browser-use-chrome-extension-*.zip`。CLI 会在本地 unpacked 目录和待拖入
@@ -118,7 +126,9 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   手动安装；GitHub Release 中的正式 zip 本身保持为 Chrome Web Store 上传包，
   不再预写 beta key。setup 过程中如果本机已有可用的 `npx skills`，会
   best-effort 执行 `npx skills update open-browser-use -g -y` 更新已有 agent
-  skill；未检测到 skills 时只展示 Codex 和 Claude Code 的安装命令。
+  skill；未检测到 skills 时只展示 Codex 和 Claude Code 的安装命令。原有
+  `setup beta --zip <本地路径>` 继续兼容，但本地包的首选入口是
+  `setup --zip <本地路径>`。
 - manifest 的 `path` 默认统一写入稳定 native host link：
   macOS 为
   `~/Library/Application Support/OpenBrowserUse/native-host/open-browser-use`，
@@ -260,6 +270,46 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
 当前 SDK 不内置 Codex 风格的站点限制、turn policy 或二次确认。上层应用
 可以自由调用；生产集成如果需要安全策略，应在上层 runtime 或 host 前置网关
 中实现。
+
+## Electron IAB 首版
+
+实现与边界见 [Electron IAB 集成设计](design-docs/electron-iab.md)。首版交付
+Electron 主进程集成包和 `examples/electron-iab`，按命名 profile
+共享登录态，每个会话 scope 拥有多个独立 tabs。底座是 `WebContentsView` 和
+`webContents.debugger`，复用 Open Browser Use 方法与事件契约。Tab 快照和更新事件提供独立 loading、
+pendingUrl 与主 frame 导航错误；宿主可直接呈现加载状态，示例 UI 状态读取
+不等待网页命令，前后历史另行后台刷新。
+
+socket bridge 默认关闭；启用时必须经过原生 peer 身份检查和任务 lease
+认证，并持续校验 scope/tab ownership。身份 adapter 不可用时拒绝开放
+socket，保留宿主私有通道。macOS/Linux 使用内核 peer 身份和宿主登记的
+PID/UID/启动时间，随后完成 lease 握手；不以同 UID 或解释器路径作为授权。
+细节见
+[IAB 本地连接鉴权设计](design-docs/iab-transport-auth.md)。
+
+`obu iab` 通过继承 FD 3 得到私有 bootstrap，支持私有 duplex RPC，或先
+验证服务端身份后连接 socket。命令不扫描 Chrome registry，不接受 argv/env
+中的秘密。支持 info、ping、tabs、open-tab、navigate、close-tab、cdp、call
+和 turn-ended。Node worker 通过 `open-browser-use-electron/client` 获得现有
+SDK browser/tab helper。
+
+`obu iab mcp` 将同一 scope 暴露为 MCP tools，stdio 负责 Agent 协议，FD 3
+负责私有 bootstrap/RPC 或鉴权 socket 的引导；主进程通过
+`launchClient({ stdin: 'pipe', ... })` 将 MCP 管道交给宿主的 Agent 客户端。
+页面工具显式传入 `tab_id`，不接入 Chrome discovery 或浏览器全局能力。
+MCP EOF 只断开连接并保留页面；lease 到期和撤销仍由 runtime 逐请求执行。
+现有 `obu mcp` 保持 Chrome route，不共享 IAB endpoint 或授权。
+
+本地验证覆盖 Electron 44.7.0 / macOS arm64；Go 命令交叉编译 Linux/Windows。
+Windows socket adapter 尚未实现，私有描述符路径也需要实机验证。首版不暴露
+global/child-target CDP、文件上传下载、clipboard、history 或 WebMCP；Chrome
+route 的既有能力和访问边界不变。Electron 包仍待单独配置发布流水线。
+
+可选 `visualFeedback` 在 guest isolated world 显示现有 Browser Use 鼠标和
+内侧渐变边缘。主进程标记 scope 内目标 tab 的操作生命周期；CDP 输入驱动
+坐标和短期活动。库默认关闭，示例提供开关。`edgeGlow` 独立启停边缘光效，
+`edgeGlowColor` 配置四边统一颜色，初始化和运行时均可设置。素材与动画从 Chrome cursor
+单一来源生成；视觉层不参与 transport 认证，也不暴露宿主能力。
 
 ## 新项目需要补齐的内容
 
